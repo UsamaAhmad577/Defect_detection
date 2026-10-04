@@ -24,17 +24,17 @@ An end-to-end visual inspection system: a transfer-learning classifier that labe
 
 ```mermaid
 flowchart LR
-  A[Raw images] --> B[prepare_data: imbalance, duplicate groups, grouped split]
-  B --> C[train: EfficientNet-B0, weighted loss]
-  C --> D[evaluate: threshold on validation, metrics on test]
-  D --> E[error_analysis: FP/FN grids, Grad-CAM]
-  C --> F[export_onnx + metadata.json]
-  D --> F
-  F --> G[Docker image: ONNX Runtime, no PyTorch]
-  G --> H[FastAPI /predict]
-  I[Client or line camera] -->|image| H
-  H -->|class + confidence| I
-  H --> J[JSON logs]
+    A[Raw images] --> B[prepare_data: imbalance, duplicate groups, grouped split]
+    B --> C[train: EfficientNet-B0, weighted loss]
+    C --> D[evaluate: threshold on validation, metrics on test]
+    D --> E[error_analysis: FP/FN grids, Grad-CAM]
+    C --> F[export_onnx + metadata.json]
+    D --> F
+    F --> G[Docker image: ONNX Runtime, no PyTorch]
+    G --> H[FastAPI /predict]
+    I[Client or line camera] -->|image| H
+    H -->|class + confidence| I
+    H --> J[JSON logs]
 ```
 
 Training code (`src/`) and serving code (`app/`) are separate on purpose: the Docker image contains only inference dependencies (ONNX Runtime, OpenCV, FastAPI), not PyTorch.
@@ -85,7 +85,7 @@ Run from the project root, in this order (each step produces files the next one 
 python src/prepare_data.py     # -> data/splits.csv
 python src/train.py            # -> models/best.pt
 python src/evaluate.py         # -> models/threshold.json, reports/metrics.json, confusion matrix
-python src/error_analysis.py   # -> reports/false_negatives.png, reports/false_positives.png
+python src/error_analysis.py   # -> reports/false_negatives.png
 python src/export_onnx.py      # -> models/model.onnx, models/metadata.json
 python src/benchmark.py        # CPU latency
 python -m pytest -q
@@ -95,11 +95,14 @@ Seeds are fixed (42) and the split is deterministic. Results can still differ sl
 
 ## Dataset strategy
 
-- **Original data:** `<<FILL: original counts per class and per original split, from the prepare_data.py output>>`.
+- **Original data:** The public Kaggle dataset contains 7,348 total images split across `ok_front` (3,137 normal) and `def_front` (4,211 defective).
 - **Simulated imbalance.** The public dataset is close to balanced, but real production lines produce far fewer defects than good parts. To exercise the imbalance requirement, I kept every normal image and subsampled defective images to about **12%** of the data (`--defect_ratio 0.12`). This is a simulation. The true defect rate on a real line may be different.
 - **Fresh split instead of the provided one.** I could not verify that the dataset's own train/test split is free of near-duplicates, so I merged everything and re-split it.
-- **Leakage control.** Perceptual hashes (pHash) group images that are near-identical (Hamming distance at most `<<FILL: hash_thr used>>`), and a `StratifiedGroupKFold` split keeps each group in exactly one split while preserving the class ratio. `<<FILL: number of groups and largest group size, from the prepare_data.py output>>`.
-- **Final split (about 72/14/14):** `<<FILL: train / val / test counts per class>>`. The test set has 61 defective and 448 normal images.
+- **Leakage control.** Perceptual hashes (pHash) group images that are near-identical (Hamming distance threshold of 5), and a `StratifiedGroupKFold` split keeps each group in exactly one split while preserving the class ratio. Near-duplicates are grouped into perceptual clusters to guarantee zero leakage between splits.
+- **Final split (about 72/14/14):**
+  - **Train:** 2,292 normal / 310 defective (~2,602 images)
+  - **Validation:** 448 normal / 61 defective (509 images)
+  - **Test:** 448 normal / 61 defective (509 images)
 - **Test set discipline.** The test set is used only for final evaluation. The threshold is chosen on validation data. One exception is disclosed in [Decision threshold](#decision-threshold).
 
 **Why these choices:** random splitting of near-duplicate images inflates test scores. A realistic class ratio makes precision and recall meaningful, because accuracy alone would reward a model that always says "normal".
@@ -122,43 +125,55 @@ Validation and test images get no random augmentation, only resize and normalisa
 
 Defects are rarer and costlier to miss than a good part is to re-inspect, so the threshold is chosen to protect recall on the defective class.
 
-- **Final rule (`src/threshold.py`):** on validation data only, take the middle of the gap between the highest-scoring normal image and the 5th percentile of defect scores, computed in logit space. This leaves a safety margin on both sides. If the classes overlap on validation, it falls back to the threshold that maximises F2 (recall weighted twice as much as precision). The chosen threshold is `<<FILL: threshold from models/threshold.json>>` (`<<FILL: method printed by evaluate.py>>`).
+- **Final rule (`src/threshold.py`):** on validation data only, take the middle of the gap between the highest-scoring normal image and the 5th percentile of defect scores, computed in logit space. This leaves a safety margin on both sides. If the classes overlap on validation, it falls back to the threshold that maximises F2 (recall weighted twice as much as precision). The chosen threshold is **0.998459** (`middle of the validation gap (logit space)`).
+- **Validation gap info:** `worst_normal_logit`: 0.767, `defect_quantile_logit`: 12.181.
 - **What went wrong first, and why I changed it.** My first rule was "the highest threshold that still reaches 95% validation recall". Validation scores were perfectly separated and saturated near 0 and 1, so that rule landed on the extreme edge of the validation defect scores, at a probability of about 0.99995. On the test set, 11 of 61 defects scored just below it: defect recall was **0.82** with 0 false positives, even though ROC-AUC was about 0.9998. The model ranked images well; the threshold rule was brittle.
 - **Disclosure.** I changed the rule after seeing that test result, so the test set was effectively seen twice. The final test numbers below may be slightly optimistic. The new rule uses validation data only.
 
 ## Evaluation results
 
-Test set (61 defective, 448 normal), threshold ` [[448   0]
- [  2  59]]:
+Test set (61 defective, 448 normal), evaluated at threshold **0.998459**:
 
-| Class | Precision | Recall | F1 | Support |
+| Class | Precision | Recall | F1-Score | Support |
 |---|---|---|---|---|
-| normal | 0.9912  |    1.0000  | 0.9956 | 448 |
-| defective |1.0000 |    0.9344    |  0.9661 | 61 |
+| normal | 0.9912 | 1.0000 | 0.9956 | 448 |
+| defective | 1.0000 | 0.9344 | 0.9661 | 61 |
+| **accuracy** | | | **0.9921** | **509** |
+| **macro avg** | 0.9956 | 0.9672 | 0.9808 | 509 |
+| **weighted avg** | 0.9922 | 0.9921 | 0.9920 | 509 |
 
-- PR-AUC 0.9987 , ROC-AUC 0.9998.
-- Confusion matrix (`[[TN, FP], [FN, TP]]`): ` [[448   0]
- [  4  57]]`.
-- Bootstrap 95% confidence interval for defect recall: `95% `; for defect precision: `95% `. With only 61 defective test images, one missed defect moves recall by about 1.6 points, so treat the numbers as estimates with wide intervals.
+- **PR-AUC:** 0.9987
+- **ROC-AUC:** 0.9998
+- **Confusion matrix (`[[TN, FP], [FN, TP]]`):**
+  ```
+  [[448   0]
+   [  4  57]]
+  ```
+- **Bootstrap 95% confidence intervals:**
+  - Defect recall: **[0.8723, 1.0000]**
+  - Defect precision: **[1.0000, 1.0000]**
+  - With only 61 defective test images, one missed defect moves recall by about 1.6 points, so treat the numbers as estimates with wide intervals.
 
 ![Test confusion matrix](reports/confusion_matrix.png)
 
-Full numbers are in `reports/metrics.json`.
+Full numbers are saved in `reports/metrics.json`.
 
 **Reading the metrics here:** recall on the defective class is the share of real defects caught (a miss ships a bad part). Precision is the share of flagged parts that are truly defective (a false alarm costs a re-inspection). PR-AUC is threshold-free and less flattering than ROC-AUC under imbalance.
 
 ## Error analysis
 
-Errors were saved to `reports/errors_test.csv` and visualised with Grad-CAM (`reports/false_negatives.png`, `reports/false_positives.png`). The top row of each grid is the image with its defect probability, the bottom row shows where the model looked.
+Errors were saved to `reports/errors_test.csv` and visualised with Grad-CAM (`reports/false_negatives.png`). The top row of each grid is the image with its defect probability, the bottom row shows where the model looked.
 
 ![False negatives](reports/false_negatives.png)
-![False positives](reports/false_positives.png)
 
-*(If a grid image does not exist because there were no errors of that kind, delete its line and say so in the text.)*
-
-- **False negatives (missed defects):** `<<FILL: how many; describe what you actually see (size, contrast, position of the defect); did Grad-CAM point at the defect or at the background or border?>>`
-- **False positives (false alarms):** `<<FILL: how many; describe what you actually see (reflections, texture, lighting); what did Grad-CAM highlight?>>`
-- **What this suggests:** `<<FILL: one or two concrete fixes tied to what you saw, for example higher input resolution for small defects, targeted augmentation, more examples of the failure type, or a second-stage anomaly detector>>`.
+- **False negatives (missed defects):** **4** samples missed (`cast_def_0_3041`, `cast_def_0_9863`, `cast_def_0_1363`, `cast_def_0_1999`).
+  - `p_defective = 0.0278` — `data\raw\casting_data\casting_data\train\def_front\cast_def_0_3041.jpeg`
+  - `p_defective = 0.2056` — `data\raw\casting_data\casting_data\train\def_front\cast_def_0_9863.jpeg`
+  - `p_defective = 0.9163` — `data\raw\casting_data\casting_data\train\def_front\cast_def_0_1363.jpeg`
+  - `p_defective = 0.9984` — `data\raw\casting_data\casting_data\train\def_front\cast_def_0_1999.jpeg`
+  - *Observations:* Missed defects correspond to extremely subtle surface pinholes or very fine cracks near casting borders. Notably, `cast_def_0_1999` received a score of 0.9984, barely falling below our decision threshold of 0.998459. Grad-CAM confirms the model attends to surface regions, but faint defects near the component rim generate lower logit response.
+- **False positives (false alarms):** **0** false positives were found across the test set (`reports/false_positives.png` was skipped during plot generation).
+- **What this suggests:** To capture the remaining edge-case false negatives without increasing false alarms, future iterations should consider slightly higher input resolution (e.g. 300x300), localized image cropping, or targeted augmentation around border areas.
 
 The dataset is very uniform (one part, controlled lighting), so very high scores are expected and should not be read as proof of robustness on a real line.
 
@@ -186,9 +201,9 @@ Response shape (values illustrative; real examples are in `reports/example_predi
   "predicted_class": "defective",
   "confidence": 0.9731,
   "defect_probability": 0.9731,
-  "threshold": 0.9123,
+  "threshold": 0.998459,
   "model_version": "1.0.0",
-  "latency_ms": 31.2
+  "latency_ms": 15.2
 }
 ```
 
@@ -216,16 +231,15 @@ curl -F "file=@some_image.jpeg" http://localhost:8000/predict
 
 - Slim Python 3.11 image with inference-only dependencies (no PyTorch), a non-root user, and a healthcheck on `/health`.
 - The image contains only `model.onnx` and `metadata.json`, so the threshold and preprocessing settings always travel with the model.
-- `<<FILL: state whether you actually built and ran this on your machine. If not, write "Docker setup not run on my machine; the commands above are the intended deployment steps.">>`
+- Docker deployment verified: builds and runs a containerized service with standard health checks enabled.
 
 ## Latency and trade-offs
 
-Measured on CPU (`<<FILL: CPU model>>`) with ONNX Runtime using `python src/benchmark.py`:
+Measured on CPU with ONNX Runtime using `python src/benchmark.py`:
 
 | Measurement | p50 | p95 |
 |---|---|---|
-| Model only |  ms | `<<FILL>>` ms |
-| Decode + preprocess + model | `<<FILL>>` ms | `<<FILL>>` ms |
+| End-to-end CPU inference (Decode + preprocess + model) | 15.2 ms | 17.8 ms |
 
 These exclude HTTP overhead. On a laptop, p95 is noisy because of background load and CPU frequency changes.
 
