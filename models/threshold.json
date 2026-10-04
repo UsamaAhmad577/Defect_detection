@@ -1,0 +1,9 @@
+{
+  "threshold": 0.998459315512914,
+  "method": "middle of the validation gap (logit space)",
+  "info": {
+    "worst_normal_logit": 0.767,
+    "defect_quantile_logit": 12.181,
+    "method": "middle of the validation gap (logit space)"
+  }
+}

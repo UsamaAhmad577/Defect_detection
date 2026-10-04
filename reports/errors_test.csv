@@ -1,0 +1,5 @@
+path,label,orig_split,group,split,p_defective,pred
+data\raw\casting_data\casting_data\train\def_front\cast_def_0_3041.jpeg,1,train,3546,test,0.027797386,0
+data\raw\casting_data\casting_data\train\def_front\cast_def_0_9863.jpeg,1,train,3188,test,0.20556386,0
+data\raw\casting_data\casting_data\train\def_front\cast_def_0_1363.jpeg,1,train,3443,test,0.9162744,0
+data\raw\casting_data\casting_data\train\def_front\cast_def_0_1999.jpeg,1,train,3259,test,0.99841785,0
