@@ -128,16 +128,18 @@ Defects are rarer and costlier to miss than a good part is to re-inspect, so the
 
 ## Evaluation results
 
-Test set (61 defective, 448 normal), threshold `<<FILL: threshold>>`:
+Test set (61 defective, 448 normal), threshold ` [[448   0]
+ [  2  59]]:
 
 | Class | Precision | Recall | F1 | Support |
 |---|---|---|---|---|
-| normal | `<<FILL>>` | `<<FILL>>` | `<<FILL>>` | 448 |
-| defective | `<<FILL>>` | `<<FILL>>` | `<<FILL>>` | 61 |
+| normal | 0.9912  |    1.0000  | 0.9956 | 448 |
+| defective |1.0000 |    0.9344    |  0.9661 | 61 |
 
-- PR-AUC `<<FILL>>`, ROC-AUC `<<FILL>>`.
-- Confusion matrix (`[[TN, FP], [FN, TP]]`): `<<FILL>>`.
-- Bootstrap 95% confidence interval for defect recall: `<<FILL>>`; for defect precision: `<<FILL>>`. With only 61 defective test images, one missed defect moves recall by about 1.6 points, so treat the numbers as estimates with wide intervals.
+- PR-AUC 0.9987 , ROC-AUC 0.9998.
+- Confusion matrix (`[[TN, FP], [FN, TP]]`): ` [[448   0]
+ [  4  57]]`.
+- Bootstrap 95% confidence interval for defect recall: `95% `; for defect precision: `95% `. With only 61 defective test images, one missed defect moves recall by about 1.6 points, so treat the numbers as estimates with wide intervals.
 
 ![Test confusion matrix](reports/confusion_matrix.png)
 
@@ -222,7 +224,7 @@ Measured on CPU (`<<FILL: CPU model>>`) with ONNX Runtime using `python src/benc
 
 | Measurement | p50 | p95 |
 |---|---|---|
-| Model only | `<<FILL>>` ms | `<<FILL>>` ms |
+| Model only |  ms | `<<FILL>>` ms |
 | Decode + preprocess + model | `<<FILL>>` ms | `<<FILL>>` ms |
 
 These exclude HTTP overhead. On a laptop, p95 is noisy because of background load and CPU frequency changes.
