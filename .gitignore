@@ -1,0 +1,16 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+env/
+
+# Large raw datasets
+data/raw/
+*.jpeg
+*.jpg
+*.png
+
+# Large model artifacts (optional depending on size limits)
+models/*.pt
